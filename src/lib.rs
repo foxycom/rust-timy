@@ -4,7 +4,7 @@ use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
 
-type Callback = Box<dyn FnMut() + Send + 'static>;
+type Callback = Box<dyn FnOnce() + Send + 'static>;
 
 enum TimeMessage {
     Time(Duration, Callback),
@@ -24,7 +24,7 @@ impl Timer {
     }
 
     pub fn start<F>(&self, duration: Duration, callback: F)
-        where F: FnMut() + Send + 'static {
+        where F: FnOnce() + Send + 'static {
         let callback = Box::new(callback);
         self.sender.send(TimeMessage::Time(duration, callback)).unwrap();
     }
