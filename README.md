@@ -11,6 +11,11 @@ timy -m 5
 timy -m 1 -s 30 -v 0.5
 ```
 
+In order to be notified with sound, set
+```
+export TIMY_SOUND_DIR=<path to the music directory>
+```
+
 ## Parameters
 | Short | Long      | Description                         | Values     |
 |-------|-----------|-------------------------------------|------------|

@@ -2,15 +2,25 @@ use std::thread;
 use std::time::Duration;
 use std::sync::{mpsc, Mutex, Arc};
 use timy::Timer;
-use std::io::BufReader;
+use std::io::{BufReader, Error};
 use std::fs::{File, read};
 use rodio::{Decoder, OutputStream, source::Source, Sink};
 use clap::{Arg, App};
 use druid::{WindowDesc, Widget, LocalizedString, AppLauncher, Env, WidgetExt, Data, Lens, Color, UnitPoint, EventCtx, LifeCycle, PaintCtx, LifeCycleCtx, BoxConstraints, Size, LayoutCtx, Event, UpdateCtx};
 use druid::widget::{Label, TextBox, Flex, Align, Button};
 use std::thread::sleep;
+use std::alloc::System;
+use std::convert::TryFrom;
+use std::env::VarError;
+use std::path::Path;
+
+static SOUND_VAR_NAME: &'static str = "TIMY_SOUND_DIR";
 
 struct CliError {
+    message: String,
+}
+
+struct MusicError {
     message: String,
 }
 
@@ -19,19 +29,51 @@ struct TimyState {
     input: String,
 }
 
-/*fn main() {
-    let main_window = WindowDesc::new(build_root_widget)
-        .title(LocalizedString::new("Hello world"))
-        .window_size((600.00, 400.00));
+fn get_music_file(music: &str) -> Result<File, MusicError> {
+    match std::env::var(SOUND_VAR_NAME) {
+        Ok(path) => {
+            let dir = Path::new(&path);
+            let file = Path::new(music);
+            let joined_path = dir.join(file);
+            match File::open(joined_path.as_path()) {
+                Ok(file) => {
+                    Ok(file)
+                }
+                Err(_) => {
+                    Err(MusicError { message: format!("Could not find the music file in {}", path.as_str()) })
+                }
+            }
+        }
+        Err(_) => {
+            Err(MusicError { message: format!("Environment variable {} not set", SOUND_VAR_NAME) })
+        }
+    }
+}
 
-    let initial_state = TimyState {
-        input: "".into()
-    };
+macro_rules! music {
+    ($path:literal, $volume:expr) => {
+        {
+            println!("Playing music");
+            match get_music_file($path) {
+                Ok(file) => {
+                    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
-    AppLauncher::with_window(main_window)
-        .launch(initial_state)
-        .expect("Hello");
-}*/
+                    let sink = Sink::try_new(&stream_handle).unwrap();
+                    sink.set_volume($volume);
+
+                    let decoder = Decoder::new(file).unwrap()
+                        .take_duration(Duration::from_secs(5));
+                    sink.append(decoder);
+
+                    sink.sleep_until_end();
+                }
+                Err(err) => {
+                    println!("Sound error: {}", err.message);
+                }
+            }
+        }
+    }
+}
 
 fn build_root_widget() -> impl Widget<TimyState> {
     let label = Label::new(|data: &TimyState, _env: &Env| format!("{} seconds", data.input));
@@ -52,6 +94,11 @@ fn build_root_widget() -> impl Widget<TimyState> {
 }
 
 fn main() {
+    ctrlc::set_handler(move || {
+        println!("Canceled timer");
+        std::process::exit(0);
+    });
+
     let matches = App::new("Timy")
         .version("0.1.0")
         .arg(Arg::new("minutes")
@@ -82,16 +129,7 @@ fn main() {
 
     let seconds = (minutes * 60 + seconds) as u64;
     timer.start(Duration::from_secs(seconds), move || {
-        println!("Starting sound");
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        let file = File::open("./music/space.mp3").unwrap();
-        let sink = Sink::try_new(&stream_handle).unwrap();
-        sink.set_volume(volume);
-        let decoder = Decoder::new(file).unwrap()
-            .take_duration(Duration::from_secs(5));
-        sink.append(decoder);
-
-        sink.sleep_until_end();
+        music!("space.mp3", volume);
         println!("Done");
     });
 }
