@@ -2,13 +2,53 @@ use std::thread;
 use std::time::Duration;
 use std::sync::{mpsc, Mutex, Arc};
 use timy::Timer;
-use rodio::{OutputStream, Decoder, Source};
 use std::io::BufReader;
 use std::fs::{File, read};
+use rodio::{Decoder, OutputStream, source::Source, Sink};
 use clap::{Arg, App};
+use druid::{WindowDesc, Widget, LocalizedString, AppLauncher, Env, WidgetExt, Data, Lens, Color, UnitPoint, EventCtx, LifeCycle, PaintCtx, LifeCycleCtx, BoxConstraints, Size, LayoutCtx, Event, UpdateCtx};
+use druid::widget::{Label, TextBox, Flex, Align, Button};
+use std::thread::sleep;
 
 struct CliError {
     message: String,
+}
+
+#[derive(Clone, Data, Lens)]
+struct TimyState {
+    input: String,
+}
+
+/*fn main() {
+    let main_window = WindowDesc::new(build_root_widget)
+        .title(LocalizedString::new("Hello world"))
+        .window_size((600.00, 400.00));
+
+    let initial_state = TimyState {
+        input: "".into()
+    };
+
+    AppLauncher::with_window(main_window)
+        .launch(initial_state)
+        .expect("Hello");
+}*/
+
+fn build_root_widget() -> impl Widget<TimyState> {
+    let label = Label::new(|data: &TimyState, _env: &Env| format!("{} seconds", data.input));
+    // a textbox that modifies `name`.
+    let textbox = TextBox::new()
+        .with_placeholder("Enter timer in seconds")
+        .fix_width(200.0)
+        .lens(TimyState::input);
+
+    // arrange the two widgets vertically, with some padding
+    let layout = Flex::column()
+        .with_child(label)
+        .with_spacer(20.0)
+        .with_child(textbox);
+
+    // center the two widgets in the available space
+    Align::centered(layout)
 }
 
 fn main() {
@@ -30,18 +70,23 @@ fn main() {
     let seconds: usize = matches.value_of_t("seconds").unwrap_or(0);
     let minutes: usize = matches.value_of_t("minutes").unwrap_or(0);
 
+    println!("Starting timer with {} minutes and {} seconds.", minutes, seconds);
+
     let timer = Timer::new();
-    /*let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let file = BufReader::new(File::open("music/space.mp3").unwrap());
-    let source = Decoder::new(file).unwrap();
-    let samples = source.convert_samples();*/
+
+
 
     let seconds = (minutes * 60 + seconds) as u64;
     timer.start(Duration::from_secs(seconds), move || {
-        /*stream_handle.play_raw(samples);*/
-        /*thread::sleep(Duration::from_secs(3));*/
+        println!("Starting sound");
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        let file = File::open("./music/space.mp3").unwrap();
+        let sink = Sink::try_new(&stream_handle).unwrap();
+        let decoder = Decoder::new(file).unwrap()
+            .take_duration(Duration::from_secs(5));
+        sink.append(decoder);
+
+        sink.sleep_until_end();
         println!("Done");
     });
 }
-
-
