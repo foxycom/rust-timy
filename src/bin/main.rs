@@ -65,16 +65,20 @@ fn main() {
             .value_name("SECONDS")
             .default_value("0")
             .takes_value(true))
+        .arg(Arg::new("volume")
+            .short('v')
+            .long("volume")
+            .value_name("VOLUME")
+            .takes_value(true))
         .get_matches();
 
     let seconds: usize = matches.value_of_t("seconds").unwrap_or(0);
     let minutes: usize = matches.value_of_t("minutes").unwrap_or(0);
+    let volume: f32 = matches.value_of_t("volume").unwrap_or(1.0);
 
     println!("Starting timer with {} minutes and {} seconds.", minutes, seconds);
 
     let timer = Timer::new();
-
-
 
     let seconds = (minutes * 60 + seconds) as u64;
     timer.start(Duration::from_secs(seconds), move || {
@@ -82,6 +86,7 @@ fn main() {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         let file = File::open("./music/space.mp3").unwrap();
         let sink = Sink::try_new(&stream_handle).unwrap();
+        sink.set_volume(volume);
         let decoder = Decoder::new(file).unwrap()
             .take_duration(Duration::from_secs(5));
         sink.append(decoder);
