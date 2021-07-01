@@ -4,8 +4,11 @@ timy is a simple CLI-based alarm clock, which I build along as I learn the basic
 
 ## Usage
 ```
-# Set alarm to 5 minutes
+# Sets alarm to 5 minutes
 timy -m 5
+
+# Sets alarm to 1,5 minutes and half of the volume
+timy -m 1 -s 30 -v 0.5
 ```
 
 ## Parameters
