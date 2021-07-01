@@ -3,8 +3,16 @@ use std::thread::{JoinHandle, Thread};
 use std::thread;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
+use std::fs::File;
+use std::path::Path;
 
 type Callback = Box<dyn FnOnce() + Send + 'static>;
+
+static SOUND_VAR_NAME: &'static str = "TIMY_SOUND_DIR";
+
+pub struct MusicError {
+    pub message: String,
+}
 
 enum TimeMessage {
     Time(Duration, Callback),
@@ -89,3 +97,50 @@ impl Worker {
     fn run() {}
 }
 
+pub fn get_music_file(music: &str) -> Result<File, MusicError> {
+    match std::env::var(SOUND_VAR_NAME) {
+        Ok(path) => {
+            let dir = Path::new(&path);
+            let file = Path::new(music);
+            let joined_path = dir.join(file);
+            match File::open(joined_path.as_path()) {
+                Ok(file) => {
+                    Ok(file)
+                }
+                Err(_) => {
+                    Err(MusicError { message: format!("Could not find the music file in {}", path.as_str()) })
+                }
+            }
+        }
+        Err(_) => {
+            Err(MusicError { message: format!("Environment variable {} not set", SOUND_VAR_NAME) })
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! music {
+    ($path:literal, $volume:expr) => {
+        {
+            println!("Playing music");
+
+            match timy::get_music_file($path) {
+                Ok(file) => {
+                    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+
+                    let sink = Sink::try_new(&stream_handle).unwrap();
+                    sink.set_volume($volume);
+
+                    let decoder = Decoder::new(file).unwrap()
+                        .take_duration(Duration::from_secs(5));
+                    sink.append(decoder);
+
+                    sink.sleep_until_end();
+                }
+                Err(err) => {
+                    println!("Sound error: {}", err.message);
+                }
+            }
+        }
+    }
+}
