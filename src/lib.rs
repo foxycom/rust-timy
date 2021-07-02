@@ -1,3 +1,5 @@
+mod formatters;
+
 use std::time::Duration;
 use std::thread::{JoinHandle, Thread};
 use std::thread;
@@ -7,20 +9,29 @@ use std::fs::File;
 use std::path::Path;
 
 type Callback = Box<dyn FnOnce() + Send + 'static>;
+type RecurrentCallback = Box<dyn FnMut() + Send +'static>;
 
-static SOUND_VAR_NAME: &'static str = "TIMY_SOUND_DIR";
+const SOUND_VAR_NAME: &str = "TIMY_SOUND_DIR";
 
 pub struct MusicError {
     pub message: String,
 }
 
+struct TimeSettings {
+    duration: Duration,
+    tick_duration: Duration,
+    end_callback: Callback,
+    tick_callback: Option<RecurrentCallback>,
+}
+
 enum TimeMessage {
-    Time(Duration, Callback),
+    Time(TimeSettings),
     Stop,
 }
 
 pub struct Timer {
-    remaining_duration: Option<Duration>,
+    pub tick: Duration,
+    pub tick_callback: Option<RecurrentCallback>,
     worker: Worker,
     sender: mpsc::Sender<TimeMessage>,
 }
@@ -28,21 +39,40 @@ pub struct Timer {
 impl Timer {
     pub fn new() -> Timer {
         let (sender, receiver) = mpsc::channel();
-        Timer { remaining_duration: None, worker: Worker::new(receiver), sender }
+        Timer {
+            tick: Duration::from_millis(1000),
+            tick_callback: None,
+            worker: Worker::new(receiver),
+            sender
+        }
     }
 
-    pub fn start<F>(&self, duration: Duration, callback: F)
+    pub fn start<F>(&mut self, duration: Duration, callback: F)
         where F: FnOnce() + Send + 'static {
         let callback = Box::new(callback);
-        self.sender.send(TimeMessage::Time(duration, callback)).unwrap();
-    }
-}
 
-impl Drop for Timer {
-    fn drop(&mut self) {
+        let tick_callback = match self.tick_callback.take() {
+            None => None,
+            Some(callback) => Some(callback)
+        };
+
+        let settings = TimeSettings {
+            duration,
+            tick_callback,
+            tick_duration: self.tick,
+            end_callback: callback,
+        };
+        self.sender.send(TimeMessage::Time(settings)).unwrap();
+    }
+
+    pub fn wait(&mut self) {
         if let Some(thread) = self.worker.thread.take() {
             thread.join().unwrap();
         }
+    }
+
+    pub fn stop(&self) {
+        self.sender.send(TimeMessage::Stop).unwrap();
     }
 }
 
@@ -58,17 +88,22 @@ impl Worker {
             let mut duration;
 
             match message {
-                TimeMessage::Time(new_duration, mut callback) => {
-                    duration = new_duration;
+                TimeMessage::Time(mut settings) => {
+                    duration = settings.duration;
                     loop {
                         let delay = duration.min(Duration::from_millis(1000));
                         thread::sleep(delay);
                         duration = duration.saturating_sub(Duration::from_millis(1000));
+
+                        if let Some(ref mut tick_callback) = settings.tick_callback {
+                            tick_callback();
+                        }
+
                         let message = receiver.try_recv();
                         match message {
                             Ok(message) => {
                                 match message {
-                                    TimeMessage::Time(new_duration, callback) => duration = new_duration,
+                                    TimeMessage::Time(settings) => duration = settings.duration,
                                     TimeMessage::Stop => break
                                 }
                             }
@@ -76,7 +111,8 @@ impl Worker {
                                 match err {
                                     TryRecvError::Empty => {
                                         if let Duration::ZERO = duration {
-                                            callback();
+                                            let end_callback = settings.end_callback;
+                                            end_callback();
                                             break;
                                         }
                                     }
@@ -122,8 +158,6 @@ pub fn get_music_file(music: &str) -> Result<File, MusicError> {
 macro_rules! music {
     ($path:literal, $volume:expr) => {
         {
-            println!("Playing music");
-
             match timy::get_music_file($path) {
                 Ok(file) => {
                     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
