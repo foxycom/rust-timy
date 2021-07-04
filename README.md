@@ -1,8 +1,20 @@
 # rust-timy
 
-timy is a simple CLI-based alarm clock, which I build along as I learn the basics of Rust.
+timy is a simple CLI- and GUI-based alarm clock, which I build along as I learn the basics of Rust.
 
-## Usage
+## Build
+```
+# Build CLI version
+cargo build --package timy --bin timy --release --features CLI
+
+# Build GUI version
+cargo build --package timy --bin timy --release --features GUI
+```
+
+## GUI 
+
+![GUI version](./img/gui-screenshot.png)
+## CLI usage
 ```
 # Sets alarm to 5 minutes
 timy -m 5
@@ -16,7 +28,7 @@ In order to be notified with sound, set
 export TIMY_SOUND_DIR=<path to the music directory>
 ```
 
-## Parameters
+## CLI Parameters
 | Short | Long      | Description                         | Values     |
 |-------|-----------|-------------------------------------|------------|
 | -s    | --seconds | Sets the seconds part of the clock  | [0, 60]    |
