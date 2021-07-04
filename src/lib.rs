@@ -4,14 +4,16 @@ use std::time::Duration;
 use std::thread::{JoinHandle, Thread};
 use std::thread;
 use std::sync::mpsc;
-use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::{TryRecvError, SendError};
 use std::fs::File;
 use std::path::Path;
 
 type Callback = Box<dyn FnOnce() + Send + 'static>;
-type RecurrentCallback = Box<dyn FnMut() + Send +'static>;
+type RecurrentCallback = Box<dyn FnMut(Duration) + Send +'static>;
 
 const SOUND_VAR_NAME: &str = "TIMY_SOUND_DIR";
+const DEFAULT_DELAY_STEP: Duration = Duration::from_millis(10);
+
 
 pub struct MusicError {
     pub message: String,
@@ -22,6 +24,7 @@ struct TimeSettings {
     tick_duration: Duration,
     end_callback: Callback,
     tick_callback: Option<RecurrentCallback>,
+    stop_callback: Option<Callback>
 }
 
 enum TimeMessage {
@@ -32,6 +35,7 @@ enum TimeMessage {
 pub struct Timer {
     pub tick: Duration,
     pub tick_callback: Option<RecurrentCallback>,
+    pub stop_callback: Option<Callback>,
     worker: Worker,
     sender: mpsc::Sender<TimeMessage>,
 }
@@ -42,6 +46,7 @@ impl Timer {
         Timer {
             tick: Duration::from_millis(1000),
             tick_callback: None,
+            stop_callback: None,
             worker: Worker::new(receiver),
             sender
         }
@@ -51,18 +56,26 @@ impl Timer {
         where F: FnOnce() + Send + 'static {
         let callback = Box::new(callback);
 
-        let tick_callback = match self.tick_callback.take() {
+        /*let tick_callback = match self.tick_callback.take() {
             None => None,
             Some(callback) => Some(callback)
-        };
+        };*/
+
+        // TODO consider builder pattern
 
         let settings = TimeSettings {
             duration,
-            tick_callback,
+            tick_callback: self.tick_callback.take(),
+            stop_callback: self.stop_callback.take(),
             tick_duration: self.tick,
             end_callback: callback,
         };
-        self.sender.send(TimeMessage::Time(settings)).unwrap();
+        match self.sender.send(TimeMessage::Time(settings)) {
+            Ok(_) => {}
+            Err(err) => {
+                println!("{:?}", err.to_string());
+            }
+        }
     }
 
     pub fn wait(&mut self) {
@@ -80,7 +93,6 @@ struct Worker {
     thread: Option<JoinHandle<()>>,
 }
 
-
 impl Worker {
     fn new(receiver: mpsc::Receiver<TimeMessage>) -> Worker {
         let thread = thread::spawn(move || {
@@ -91,12 +103,12 @@ impl Worker {
                 TimeMessage::Time(mut settings) => {
                     duration = settings.duration;
                     loop {
-                        let delay = duration.min(Duration::from_millis(1000));
+                        let delay = duration.min(DEFAULT_DELAY_STEP);
                         thread::sleep(delay);
-                        duration = duration.saturating_sub(Duration::from_millis(1000));
+                        duration = duration.saturating_sub(DEFAULT_DELAY_STEP);
 
                         if let Some(ref mut tick_callback) = settings.tick_callback {
-                            tick_callback();
+                            tick_callback(duration);
                         }
 
                         let message = receiver.try_recv();
@@ -104,7 +116,12 @@ impl Worker {
                             Ok(message) => {
                                 match message {
                                     TimeMessage::Time(settings) => duration = settings.duration,
-                                    TimeMessage::Stop => break
+                                    TimeMessage::Stop => {
+                                        if let Some(callback) = settings.stop_callback {
+                                            callback();
+                                        }
+                                        break;
+                                    }
                                 }
                             }
                             Err(err) => {
